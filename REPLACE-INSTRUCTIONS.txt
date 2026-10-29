@@ -1,0 +1,25 @@
+BOTTLE INVEST - ROLE MIDDLEWARE FIX OVERWRITE ZIP
+
+This package includes the combined Bottle Invest overlay plus bootstrap/app.php with the 'role' middleware alias registered.
+
+HOW TO APPLY
+1. Back up your existing Laravel project and database first.
+2. Extract this ZIP into the Laravel project root (the folder containing artisan), allowing matching files to be replaced.
+3. IMPORTANT: bootstrap/app.php in this ZIP is a standard Laravel 11/12 bootstrap file. If your current bootstrap/app.php has custom middleware, exception handling, routing, or other setup, preserve those customizations and copy only this alias block into its existing withMiddleware callback:
+
+   $middleware->alias([
+       'role' => \App\Http\Middleware\EnsureRole::class,
+   ]);
+
+4. Ensure app/Http/Middleware/EnsureRole.php exists.
+5. Run:
+   php artisan optimize:clear
+   php artisan migrate
+   php artisan test
+
+CAUTIONS
+- routes/web.php is included. If you have other existing routes, back up and merge rather than blindly replacing it.
+- This is an overlay for an existing Laravel 11/12 application, not a complete Laravel project.
+- The package has not been integration-tested against your exact application/database. Back up first and test before production.
+
+MIGRATION COMPATIBILITY FIX: investment_offers.opens_at/deadline_at and investments.confirmed_at use DATETIME instead of TIMESTAMP to avoid MySQL 'Invalid default value for deadline_at' on some MySQL/MariaDB configurations. After backing up, replace the migration file before running migrate. If the failed migration created no tables, run php artisan migrate again.

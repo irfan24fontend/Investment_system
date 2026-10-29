@@ -1,0 +1,15 @@
+@extends('layouts.app')
+@section('content')
+<h1 class="text-xl font-bold mb-3">Investment offers</h1>
+@include('partials.offer-form', ['action' => route('admin.offers.store'), 'button' => 'Save draft', 'offer' => null])
+<div class="bg-white rounded shadow overflow-x-auto"><table class="w-full text-sm"><tr class="bg-slate-100 text-left"><th class="p-2">Code</th><th>Title</th><th>Required</th><th>Deadline</th><th>Status</th><th>Actions</th></tr>
+@foreach($rows as $o)
+@php $btns = match($o->status) { 'draft' => ['published'=>'Publish','cancelled'=>'Cancel'], 'published' => ['paused'=>'Pause','cancelled'=>'Cancel'], 'paused' => ['published'=>'Publish','cancelled'=>'Cancel'], default => [] }; @endphp
+<tr class="border-t"><td class="p-2">{{ $o->code }}</td><td>{{ $o->title }}</td><td>৳{{ number_format($o->required_amount,2) }}</td><td>{{ $o->deadline_at->timezone('Asia/Dhaka')->format('d M Y H:i') }}</td><td>{{ $o->status }}</td>
+<td class="flex flex-wrap gap-1 py-1">
+@if(in_array($o->status,['draft','paused']))<a href="{{ route('admin.offers.edit',$o) }}" class="px-2 border rounded text-indigo-700">Edit</a>@endif
+@if(in_array($o->status,['funded','completed']))<a href="{{ route('admin.offers.progress',$o) }}" class="px-2 border rounded text-green-700">Progress / Complete</a>@endif
+@foreach($btns as $to=>$lbl)<form method="POST" action="{{ route('admin.offers.status',$o) }}" data-confirm="{{ $lbl }} this offer?">@csrf<input type="hidden" name="to" value="{{ $to }}"><button class="px-2 border rounded {{ $to==='cancelled'?'text-red-700':'' }}">{{ $lbl }}</button></form>@endforeach
+@if($o->status==='published')<span class="text-xs text-slate-500 self-center">To edit: Pause first</span>@endif
+</td></tr>@endforeach</table></div>{{ $rows->links() }}
+@endsection
