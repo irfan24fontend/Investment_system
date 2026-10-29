@@ -1,0 +1,22 @@
+BOTTLE INVEST - FULL OVERWRITE PACKAGE (ROLE MIDDLEWARE FIX INCLUDED)
+
+Extract this ZIP into the ROOT of your existing Laravel 11/12 project (the folder containing artisan), allowing matching files to be replaced.
+
+BEFORE EXTRACTING:
+1. Back up the full project and database.
+2. This ZIP includes bootstrap/app.php with the 'role' middleware alias registered. It is a standard Laravel 11/12 bootstrap file; if your current file has custom routing, middleware, or exception configuration, do NOT replace it blindly. Instead, add the alias block shown below to your existing withMiddleware callback:
+
+   $middleware->alias([
+       'role' => \\App\\Http\\Middleware\\EnsureRole::class,
+   ]);
+
+3. routes/web.php is included. Back up and merge your existing routes if needed.
+
+AFTER APPLYING:
+   php artisan optimize:clear
+   php artisan migrate
+   php artisan test
+
+This is an overlay, not a complete Laravel application. PHP syntax is checked, but it has not been integration-tested against your exact app. Create the first Super Admin securely; public registration creates investor accounts only. Withdrawal, settlement, payment gateway integration, order management, and reports are not included yet.
+
+MIGRATION COMPATIBILITY FIX: investment_offers.opens_at/deadline_at and investments.confirmed_at use DATETIME instead of TIMESTAMP to avoid MySQL 'Invalid default value for deadline_at' on some MySQL/MariaDB configurations. After backing up, replace the migration file before running migrate. If the failed migration created no tables, run php artisan migrate again.
