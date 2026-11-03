@@ -21,11 +21,12 @@
   canvas.width = width;
   canvas.height = footerTop + 104;
 
-  const black = '#080808', gray = '#5c5c5c', border = '#333333';
+  const black = '#080808', border = '#333333';
   const money = value => '৳' + Number(value).toLocaleString('en-BD', {minimumFractionDigits:2, maximumFractionDigits:2});
   const write = (text, x, y, font='16px Arial, sans-serif', color=black, align='left', maxWidth=Infinity) => {
     ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align;
-    ctx.fillText(String(text ?? ''), x, y, maxWidth);
+    if (Number.isFinite(maxWidth)) ctx.fillText(String(text ?? ''), x, y, maxWidth);
+    else ctx.fillText(String(text ?? ''), x, y);
   };
   const line = (x1, y1, x2, y2, color=border, lineWidth=1) => {
     ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.beginPath();
