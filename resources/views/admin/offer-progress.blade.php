@@ -6,7 +6,7 @@
 'কাজ শেষে ডানের সবুজ ফর্মে <b>আসল</b> revenue, refund ও মোট খরচ দিন। সিস্টেম লাভ বা লোকসান হিসাব করে ইনভেস্টরের ওয়ালেটে মূলধন ± ফলাফল জমা দেয়। এটি <b>একবারই</b> হয়, ফেরানো যায় না।',
 'Revenue খরচের চেয়ে কম হলে ইনভেস্টর লোকসান পাবে। তাই ভুল সংখ্যা দেবেন না।'
 ]])
-@php $done = $inv && in_array($inv->status,['settled','loss_settled']); $st = $inv?->settlement; @endphp
+@php $st = $inv?->settlement; $done = $inv && in_array($inv->status,['settled','loss_settled']) && $st?->status === 'posted'; @endphp
 <a href="{{ route('admin.offers') }}" class="text-sm text-indigo-700">← Back to offers</a>
 <div class="flex flex-wrap items-start justify-between gap-2 my-3">
   <div><div class="text-xs text-slate-500">{{ $offer->code }}</div><h1 class="text-xl font-bold">{{ $offer->title }}</h1></div>
@@ -21,9 +21,18 @@
   <div><div class="text-xs text-slate-500">Investment status</div><b>{{ $inv->status }}</b></div>
 </div>
 
+@if($st?->status === 'reversed')
+<div class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm mb-4"><b>Completion reversed.</b> This settlement was reversed on {{ $st->reversed_at?->timezone('Asia/Dhaka')->format('d M Y, h:i A') }}. Reason: {{ $st->reversal_reason }}</div>
+@endif
 @if($done && $st)
 <div class="p-4 bg-green-50 border border-green-200 rounded-xl text-sm mb-4"><b>Completed.</b> Revenue ৳{{ number_format($st->revenue_received,2) }}, refunds ৳{{ number_format($st->refunds,2) }}, costs ৳{{ number_format($st->total_costs,2) }}, net ৳{{ number_format($st->net_result,2) }}.
  Investor profit ৳{{ number_format($st->investor_profit,2) }}, loss ৳{{ number_format($st->investor_loss,2) }}. <b>Credited to wallet: ৳{{ number_format($st->payout,2) }}</b></div>
+<form method="POST" action="{{ route('admin.offers.undo-completion',$offer) }}" onsubmit="return confirm('This will debit the credited amount from the investor wallet and reopen the offer for settlement. Continue?')" class="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4 space-y-2">@csrf
+  <h2 class="font-semibold text-amber-900">Undo completion and reverse wallet credit</h2>
+  <p class="text-xs text-amber-800">Undo posts a matching reversal to the ledger and records the reason. It is available only while the investor still has the credited amount in their wallet.</p>
+  <label class="text-xs text-slate-600">Reason<textarea name="reason" minlength="5" maxlength="500" required rows="2" class="border rounded-lg px-3 py-2 w-full"></textarea></label>
+  <button class="bg-amber-700 text-white px-4 py-2 rounded-lg text-sm">Undo completion</button>
+</form>
 @else
 <div class="grid lg:grid-cols-2 gap-4 mb-6">
   <form method="POST" action="{{ route('admin.offers.progress.store',$offer) }}" class="bg-white border rounded-xl p-4 space-y-2">@csrf
@@ -35,7 +44,7 @@
     <button class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Post update</button>
   </form>
 
-  <form method="POST" action="{{ route('admin.offers.complete',$offer) }}" onsubmit="return confirm('Complete this offer now? The investor wallet will be credited immediately. This cannot be undone.')" class="bg-white border-2 border-green-300 rounded-xl p-4 space-y-2">@csrf
+  <form method="POST" action="{{ route('admin.offers.complete',$offer) }}" onsubmit="return confirm('Complete this offer now? The investor wallet will be credited immediately. An undo is available only while the credited funds remain in the wallet.')" class="bg-white border-2 border-green-300 rounded-xl p-4 space-y-2">@csrf
     <h2 class="font-semibold text-green-800">Complete offer and pay investor</h2>
     <p class="text-xs text-slate-500">Enter the real figures. The system calculates profit or loss under the agreement and credits principal ± result to the investor's wallet.</p>
     <label class="text-xs text-slate-500">Revenue actually received (৳)<input name="revenue" type="number" step="0.01" min="0" value="{{ $defaultRevenue }}" required class="border rounded-lg px-3 py-2 w-full text-sm"></label>

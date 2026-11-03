@@ -61,6 +61,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/offers/{offer}/progress', [AdminController::class, 'offerProgress'])->name('offers.progress');
             Route::post('/offers/{offer}/progress', [AdminController::class, 'offerProgressStore'])->name('offers.progress.store');
             Route::post('/offers/{offer}/complete', [AdminController::class, 'offerComplete'])->name('offers.complete');
+            Route::post('/offers/{offer}/undo-completion', [AdminController::class, 'offerUndoCompletion'])->name('offers.undo-completion');
             Route::post('/offers/{offer}/status', [AdminController::class, 'offerStatus'])->name('offers.status');
             Route::get('/audit', [AdminController::class, 'auditLogs'])->name('audit');
         });

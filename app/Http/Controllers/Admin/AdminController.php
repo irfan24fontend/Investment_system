@@ -133,6 +133,12 @@ class AdminController extends Controller {
         return back()->with('ok', "Offer completed. ৳{$st->payout} credited to the investor's wallet.");
     }
 
+    public function offerUndoCompletion(Request $r, InvestmentOffer $offer, SettlementService $s) {
+        $reason = $r->validate(['reason' => 'required|string|min:5|max:500'])['reason'];
+        $settlement = Settlement::whereHas('investment', fn ($q) => $q->where('offer_id', $offer->id))->firstOrFail();
+        return $this->run(fn () => $s->undo($settlement, $r->user(), $reason));
+    }
+
     public function depositReceipt(PaymentDeposit $deposit) {
         abort_unless($deposit->receipt_path && Storage::exists($deposit->receipt_path), 404);
         Audit::log('deposit.receipt_viewed', $deposit);

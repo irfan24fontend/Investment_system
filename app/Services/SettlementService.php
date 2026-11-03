@@ -27,18 +27,26 @@ class SettlementService {
         return DB::transaction(function () use ($inv, $by, $revenue, $refunds, $extraDeductions) {
             $inv = Investment::whereKey($inv->id)->lockForUpdate()->first();
             if ($inv->status !== 'confirmed') throw new BusinessRuleException('Investment already settled or inactive.');
-            if (Settlement::where('investment_id', $inv->id)->exists()) throw new BusinessRuleException('Settlement already exists.');
+            $existing = Settlement::where('investment_id', $inv->id)->lockForUpdate()->first();
+            if ($existing && $existing->status !== 'reversed') throw new BusinessRuleException('Settlement already exists.');
             $order = Order::where('offer_id', $inv->offer_id)->first() ?? throw new BusinessRuleException('No order linked to this offer.');
             if (! in_array($order->status, ['financial_verification', 'settlement_pending', 'cancelled'], true))
                 throw new BusinessRuleException('Order is not ready for settlement.');
             foreach ([$revenue, $refunds, $extraDeductions] as $v) if (bccomp($v, '0', 2) < 0) throw new BusinessRuleException('Negative inputs not allowed.');
 
             $c = $this->calc($inv, $order, $revenue, $refunds, $extraDeductions);
-            return Settlement::create([
+            $values = [
                 'investment_id' => $inv->id, 'order_id' => $order->id, 'revenue_received' => $revenue, 'refunds' => $refunds,
                 'total_costs' => $c['costs'], 'net_result' => $c['net'], 'investor_profit' => $c['profit'], 'investor_loss' => $c['loss'], 'payout' => $c['payout'],
-                'breakdown' => $c['breakdown'], 'prepared_by' => $by->id,
-            ]);
+                'breakdown' => $c['breakdown'], 'prepared_by' => $by->id, 'status' => 'prepared',
+                'approved_by' => null, 'ledger_transaction_id' => null, 'reversal_transaction_id' => null,
+                'reversal_reason' => null, 'reversed_at' => null,
+            ];
+            if ($existing) {
+                $existing->forceFill($values)->save();
+                return $existing;
+            }
+            return Settlement::create($values);
         });
     }
 
@@ -122,6 +130,46 @@ class SettlementService {
             \App\Models\InvestmentOffer::whereKey($inv->offer_id)->update(['status' => 'completed']);
             Audit::log('settlement.posted', $s, ['payout' => $s->payout]);
             UserNotice::to($inv->user_id, 'Settlement approved', "৳{$s->payout} credited to your wallet.");
+        });
+    }
+
+    /** Reverse a completed offer by posting the exact inverse ledger entries. */
+    public function undo(Settlement $settlement, User $by, string $reason): void {
+        if (! $by->hasRole('super_admin')) throw new BusinessRuleException('Only the super admin can undo a completed offer.');
+        DB::transaction(function () use ($settlement, $by, $reason) {
+            $s = Settlement::whereKey($settlement->id)->lockForUpdate()->firstOrFail();
+            if ($s->status !== 'posted') throw new BusinessRuleException('Only a credited settlement can be undone.');
+            $inv = Investment::whereKey($s->investment_id)->lockForUpdate()->firstOrFail();
+            if (! in_array($inv->status, ['settled', 'loss_settled'], true)) throw new BusinessRuleException('Investment is not in a completed state.');
+
+            $original = DB::table('ledger_transactions')->where('id', $s->ledger_transaction_id)->first();
+            if (! $original) throw new BusinessRuleException('Original settlement ledger transaction was not found.');
+            $entries = DB::table('ledger_entries')->where('transaction_id', $original->id)->get();
+            $walletId = $this->ledger->account($inv->user_id, 'wallet')->id;
+            $walletCredit = '0.00';
+            $lines = [];
+            foreach ($entries as $entry) {
+                if ((int) $entry->account_id === $walletId && $entry->direction === 'credit') {
+                    $walletCredit = bcadd($walletCredit, (string) $entry->amount, 2);
+                }
+                $account = \App\Models\LedgerAccount::findOrFail($entry->account_id);
+                $lines[] = [$account, $entry->direction === 'debit' ? 'credit' : 'debit', (string) $entry->amount];
+            }
+            if (bccomp($this->ledger->account($inv->user_id, 'wallet')->balance(true), $walletCredit, 2) < 0) {
+                throw new BusinessRuleException('Investor has already used part of the credited amount; the credit cannot be fully reversed.');
+            }
+
+            $tx = $this->ledger->post('settlement_reversal', "settlement-reversal:{$s->id}", $lines, [
+                'related_type' => Settlement::class, 'related_id' => $s->id,
+                'initiated_by' => $by->id, 'approved_by' => $by->id, 'description' => 'Undo settlement: '.$reason,
+            ]);
+            $s->forceFill(['status' => 'reversed', 'reversal_transaction_id' => $tx,
+                'reversal_reason' => $reason, 'reversed_at' => now()])->save();
+            $inv->forceFill(['status' => 'confirmed'])->save();
+            Order::whereKey($s->order_id)->update(['status' => 'financial_verification']);
+            \App\Models\InvestmentOffer::whereKey($inv->offer_id)->update(['status' => 'funded']);
+            Audit::log('settlement.reversed', $s, ['reason' => $reason, 'reversal_transaction_id' => $tx]);
+            UserNotice::to($inv->user_id, 'Settlement reversed', 'A completed settlement was reversed by staff. Reason: '.$reason);
         });
     }
 
