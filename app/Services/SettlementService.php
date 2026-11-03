@@ -8,6 +8,7 @@ use App\Models\Settlement;
 use App\Models\User;
 use App\Models\UserNotice;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Model A (new, settlement_rules.investor_return_pct): target = invested x pct%. Investor profit = min(target, actual net profit).
@@ -121,7 +122,9 @@ class SettlementService {
             if (bccomp($s->investor_profit, '0', 2) > 0) $lines[] = [$result, 'debit', $s->investor_profit];
             if (bccomp($s->investor_loss, '0', 2) > 0) $lines[] = [$result, 'credit', $s->investor_loss];
 
-            $tx = $this->ledger->post('settlement', "settlement:{$s->id}", $lines, [
+            // A settlement row may be reused after reversal. Give every completion cycle
+            // its own idempotency key so a later payout is not mistaken for an old one.
+            $tx = $this->ledger->post('settlement', "settlement:{$s->id}:".Str::uuid(), $lines, [
                 'related_type' => Settlement::class, 'related_id' => $s->id, 'initiated_by' => $s->prepared_by, 'approved_by' => $approver->id,
             ]);
             $s->forceFill(['status' => 'posted', 'approved_by' => $approver->id, 'ledger_transaction_id' => $tx])->save();
@@ -150,7 +153,9 @@ class SettlementService {
                 $account = \App\Models\LedgerAccount::findOrFail($entry->account_id);
                 $lines[] = [$account, $entry->direction === 'debit' ? 'credit' : 'debit', (string) $entry->amount];
             }
-            $tx = $this->ledger->post('settlement_reversal', "settlement-reversal:{$s->id}", $lines, [
+            // Bind the reversal key to the exact original posting, allowing repeated
+            // complete/undo cycles while preventing duplicate reversal of that posting.
+            $tx = $this->ledger->post('settlement_reversal', "settlement-reversal:{$s->ledger_transaction_id}", $lines, [
                 'related_type' => Settlement::class, 'related_id' => $s->id,
                 'initiated_by' => $by->id, 'approved_by' => $by->id, 'description' => 'Settlement reversal',
             ]);
