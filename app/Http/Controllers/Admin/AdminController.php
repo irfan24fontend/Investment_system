@@ -102,10 +102,12 @@ class AdminController extends Controller {
     }
 
     // ---- Progress + completion (super admin, any time)
-    public function offerProgress(InvestmentOffer $offer) {
+    public function offerProgress(InvestmentOffer $offer, SettlementService $settlements) {
         $order = Order::where('offer_id', $offer->id)->first();
+        $inv = Investment::with('user', 'settlement')->where('offer_id', $offer->id)->first();
         return view('admin.offer-progress', ['offer' => $offer, 'order' => $order,
-            'inv' => Investment::with('user', 'settlement')->where('offer_id', $offer->id)->first(),
+            'inv' => $inv,
+            'payoutDifference' => $inv?->settlement ? $settlements->payoutDifference($inv->settlement) : '0.00',
             'updates' => DB::table('offer_progress')->where('offer_id', $offer->id)->orderByDesc('id')->get(),
             'defaultRevenue' => ($order && bccomp((string) $order->sale_price, '0', 2) > 0) ? (string) $order->sale_price : '',
             'defaultCost' => $order ? bcadd(bcadd((string) $order->purchase_cost, (string) $order->transport_cost, 2), (string) $order->other_cost, 2) : (string) $offer->total_cost]);
@@ -137,6 +139,18 @@ class AdminController extends Controller {
         $reason = $r->validate(['reason' => 'required|string|min:5|max:500'])['reason'];
         $settlement = Settlement::whereHas('investment', fn ($q) => $q->where('offer_id', $offer->id))->firstOrFail();
         return $this->run(fn () => $s->undo($settlement, $r->user(), $reason));
+    }
+
+    public function offerCorrectPayout(Request $r, InvestmentOffer $offer, SettlementService $s) {
+        $reason = $r->validate(['reason' => 'required|string|min:5|max:500'])['reason'];
+        $settlement = Settlement::whereHas('investment', fn ($q) => $q->where('offer_id', $offer->id))->firstOrFail();
+        try {
+            $delta = $s->correctPayout($settlement, $r->user(), $reason);
+        } catch (BusinessRuleException $e) {
+            return back()->withErrors(['action' => $e->getMessage()]);
+        }
+        $direction = bccomp($delta, '0', 2) > 0 ? 'added to' : 'deducted from';
+        return back()->with('ok', 'Wallet payout corrected: ৳'.number_format(abs((float) $delta), 2).' '.$direction.' the investor wallet.');
     }
 
     public function depositReceipt(PaymentDeposit $deposit) {

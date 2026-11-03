@@ -25,6 +25,15 @@
 <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm mb-4"><b>Completion reversed.</b> This settlement was reversed on {{ $st->reversed_at?->timezone('Asia/Dhaka')->format('d M Y, h:i A') }}. Reason: {{ $st->reversal_reason }}</div>
 @endif
 @if($done && $st)
+@if(bccomp($payoutDifference, '0', 2) !== 0)
+<div class="bg-red-50 border border-red-300 rounded-xl p-4 mb-4 text-sm">
+  <b>Wallet ledger mismatch.</b> Settlement payout is ৳{{ number_format($st->payout,2) }}, but the original ledger transaction differs by ৳{{ number_format(abs((float) $payoutDifference),2) }}.
+  <form method="POST" action="{{ route('admin.offers.correct-payout',$offer) }}" onsubmit="return confirm('Post a balanced ledger adjustment to match the settlement payout?')" class="mt-3 space-y-2">@csrf
+    <label class="block text-xs text-slate-600">Correction reason<textarea name="reason" minlength="5" maxlength="500" required rows="2" class="border rounded-lg px-3 py-2 w-full"></textarea></label>
+    <button class="bg-red-700 text-white px-4 py-2 rounded-lg text-sm">Correct wallet credit by ৳{{ number_format(abs((float) $payoutDifference),2) }}</button>
+  </form>
+</div>
+@endif
 <div class="p-4 bg-green-50 border border-green-200 rounded-xl text-sm mb-4"><b>Completed.</b> Revenue ৳{{ number_format($st->revenue_received,2) }}, refunds ৳{{ number_format($st->refunds,2) }}, costs ৳{{ number_format($st->total_costs,2) }}, net ৳{{ number_format($st->net_result,2) }}.
  Investor profit ৳{{ number_format($st->investor_profit,2) }}, loss ৳{{ number_format($st->investor_loss,2) }}. <b>Credited to wallet: ৳{{ number_format($st->payout,2) }}</b></div>
 <form method="POST" action="{{ route('admin.offers.undo-completion',$offer) }}" onsubmit="return confirm('This will debit the credited amount from the investor wallet and reopen the offer for settlement. Continue?')" class="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4 space-y-2">@csrf

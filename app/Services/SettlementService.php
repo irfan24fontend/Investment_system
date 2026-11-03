@@ -169,6 +169,54 @@ class SettlementService {
         });
     }
 
+    /** Return the amount missing from (or overpaid to) the wallet in the posted ledger transaction. */
+    public function payoutDifference(Settlement $settlement): string
+    {
+        if ($settlement->status !== 'posted' || ! $settlement->ledger_transaction_id) return '0.00';
+        $walletId = $this->ledger->account($settlement->investment->user_id, 'wallet')->id;
+        $actual = DB::table('ledger_entries')->where('transaction_id', $settlement->ledger_transaction_id)
+            ->where('account_id', $walletId)
+            ->selectRaw("COALESCE(SUM(CASE WHEN direction='credit' THEN amount ELSE -amount END),0) amount")
+            ->value('amount');
+        $adjustments = DB::table('ledger_entries as e')
+            ->join('ledger_transactions as t', 't.id', '=', 'e.transaction_id')
+            ->where('t.idempotency_key', 'like', "settlement-adjustment:{$settlement->ledger_transaction_id}:%")
+            ->where('e.account_id', $walletId)
+            ->selectRaw("COALESCE(SUM(CASE WHEN e.direction='credit' THEN e.amount ELSE -e.amount END),0) amount")
+            ->value('amount');
+        $actual = bcadd((string) ($actual ?? '0.00'), (string) ($adjustments ?? '0.00'), 2);
+        return bcsub((string) $settlement->payout, (string) ($actual ?? '0.00'), 2);
+    }
+
+    /** Post only the difference when a legacy idempotency replay credited the wrong payout. */
+    public function correctPayout(Settlement $settlement, User $by, string $reason): string
+    {
+        if (! $by->hasRole('super_admin')) throw new BusinessRuleException('Only the super admin can correct a posted payout.');
+        return DB::transaction(function () use ($settlement, $by, $reason) {
+            $s = Settlement::whereKey($settlement->id)->lockForUpdate()->firstOrFail();
+            if ($s->status !== 'posted' || ! $s->ledger_transaction_id) throw new BusinessRuleException('Only a posted settlement can be corrected.');
+            $delta = $this->payoutDifference($s);
+            if (bccomp($delta, '0', 2) === 0) throw new BusinessRuleException('The recorded wallet credit already matches the payout.');
+
+            $wallet = $this->ledger->account($s->investment->user_id, 'wallet');
+            $result = $this->ledger->account(null, 'project_result');
+            $amount = bccomp($delta, '0', 2) > 0 ? $delta : bcsub('0', $delta, 2);
+            $lines = bccomp($delta, '0', 2) > 0
+                ? [[$result, 'debit', $amount], [$wallet, 'credit', $amount]]
+                : [[$wallet, 'debit', $amount], [$result, 'credit', $amount]];
+            $tx = $this->ledger->post('settlement_adjustment', "settlement-adjustment:{$s->ledger_transaction_id}:{$s->payout}", $lines, [
+                'related_type' => Settlement::class, 'related_id' => $s->id,
+                'initiated_by' => $by->id, 'approved_by' => $by->id,
+                'description' => 'Settlement payout correction',
+            ]);
+            Audit::log('settlement.payout_corrected', $s, [
+                'delta' => $delta, 'reason' => $reason, 'transaction_id' => $tx,
+            ]);
+            UserNotice::to($s->investment->user_id, 'Wallet payout corrected', 'A settlement wallet credit was corrected by ৳'.number_format((float) $delta, 2).'.');
+            return $delta;
+        });
+    }
+
     /**
      * Super admin completes an offer at any time: actual revenue + actual cost are entered, the system calculates
      * profit/loss under the accepted agreement, posts it to the ledger, and credits principal +/- result to the wallet.
