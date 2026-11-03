@@ -102,12 +102,13 @@ class AdminController extends Controller {
     }
 
     // ---- Progress + completion (super admin, any time)
-    public function offerProgress(InvestmentOffer $offer, SettlementService $settlements) {
+    public function offerProgress(InvestmentOffer $offer, SettlementService $settlements, LedgerService $ledger) {
         $order = Order::where('offer_id', $offer->id)->first();
         $inv = Investment::with('user', 'settlement')->where('offer_id', $offer->id)->first();
         return view('admin.offer-progress', ['offer' => $offer, 'order' => $order,
             'inv' => $inv,
             'payoutDifference' => $inv?->settlement ? $settlements->payoutDifference($inv->settlement) : '0.00',
+            'investorWalletBalance' => $inv ? $ledger->account($inv->user_id, 'wallet')->balance() : '0.00',
             'updates' => DB::table('offer_progress')->where('offer_id', $offer->id)->orderByDesc('id')->get(),
             'defaultRevenue' => ($order && bccomp((string) $order->sale_price, '0', 2) > 0) ? (string) $order->sale_price : '',
             'defaultCost' => $order ? bcadd(bcadd((string) $order->purchase_cost, (string) $order->transport_cost, 2), (string) $order->other_cost, 2) : (string) $offer->total_cost]);

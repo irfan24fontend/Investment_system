@@ -25,6 +25,14 @@
 <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm mb-4"><b>Completion reversed.</b> This settlement was reversed on {{ $st->reversed_at?->timezone('Asia/Dhaka')->format('d M Y, h:i A') }}. Reason: {{ $st->reversal_reason }}</div>
 @endif
 @if($done && $st)
+@php $ledgerWalletCredit = bcsub((string) $st->payout, (string) $payoutDifference, 2); @endphp
+<div class="bg-slate-50 border rounded-xl p-4 mb-4 text-sm">
+  <b>Wallet credit check.</b>
+  <div class="mt-1">Payout: ৳{{ number_format($st->payout,2) }} · Original ledger credit: ৳{{ number_format($ledgerWalletCredit,2) }} · Current wallet balance: ৳{{ number_format($investorWalletBalance,2) }}</div>
+  @if(bccomp($payoutDifference, '0', 2) === 0)
+  <div class="mt-2 text-green-700">Original settlement ledger credit matches the payout. Any difference in current balance comes from other wallet transactions.</div>
+  @endif
+</div>
 @if(bccomp($payoutDifference, '0', 2) !== 0)
 <div class="bg-red-50 border border-red-300 rounded-xl p-4 mb-4 text-sm">
   <b>Wallet ledger mismatch.</b> Settlement payout is ৳{{ number_format($st->payout,2) }}, but the original ledger transaction differs by ৳{{ number_format(abs((float) $payoutDifference),2) }}.
