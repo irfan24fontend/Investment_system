@@ -33,6 +33,21 @@
   <div class="mt-2 text-green-700">Original settlement ledger credit matches the payout. Any difference in current balance comes from other wallet transactions.</div>
   @endif
 </div>
+<div class="bg-white border rounded-xl p-4 mb-4 text-sm">
+  <b>Investor wallet transactions (latest 20)</b>
+  <div class="divide-y mt-2">
+  @forelse($walletTx as $tx)
+    <div class="py-2 flex justify-between gap-3">
+      <div>{{ ucwords(str_replace('_', ' ', $tx->type)) }} <span class="text-slate-500">{{ $tx->reference }}</span>
+        <div class="text-xs text-slate-500">{{ \Illuminate\Support\Carbon::parse($tx->created_at)->timezone('Asia/Dhaka')->format('d M Y, h:i A') }}</div>
+      </div>
+      <b class="{{ $tx->direction === 'credit' ? 'text-green-700' : 'text-red-700' }}">{{ $tx->direction === 'credit' ? '+' : '−' }}৳{{ number_format($tx->amount,2) }}</b>
+    </div>
+  @empty
+    <div class="py-2 text-slate-500">No wallet entries.</div>
+  @endforelse
+  </div>
+</div>
 @if(bccomp($payoutDifference, '0', 2) !== 0)
 <div class="bg-red-50 border border-red-300 rounded-xl p-4 mb-4 text-sm">
   <b>Wallet ledger mismatch.</b> Settlement payout is ৳{{ number_format($st->payout,2) }}, but the original ledger transaction differs by ৳{{ number_format(abs((float) $payoutDifference),2) }}.

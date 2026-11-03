@@ -105,10 +105,20 @@ class AdminController extends Controller {
     public function offerProgress(InvestmentOffer $offer, SettlementService $settlements, LedgerService $ledger) {
         $order = Order::where('offer_id', $offer->id)->first();
         $inv = Investment::with('user', 'settlement')->where('offer_id', $offer->id)->first();
+        $walletTx = collect();
+        if ($inv) {
+            $walletId = $ledger->account($inv->user_id, 'wallet')->id;
+            $walletTx = DB::table('ledger_entries as e')
+                ->join('ledger_transactions as t', 't.id', '=', 'e.transaction_id')
+                ->where('e.account_id', $walletId)
+                ->orderByDesc('e.id')->limit(20)
+                ->get(['t.type', 't.reference', 'e.direction', 'e.amount', 'e.created_at']);
+        }
         return view('admin.offer-progress', ['offer' => $offer, 'order' => $order,
             'inv' => $inv,
             'payoutDifference' => $inv?->settlement ? $settlements->payoutDifference($inv->settlement) : '0.00',
             'investorWalletBalance' => $inv ? $ledger->account($inv->user_id, 'wallet')->balance() : '0.00',
+            'walletTx' => $walletTx,
             'updates' => DB::table('offer_progress')->where('offer_id', $offer->id)->orderByDesc('id')->get(),
             'defaultRevenue' => ($order && bccomp((string) $order->sale_price, '0', 2) > 0) ? (string) $order->sale_price : '',
             'defaultCost' => $order ? bcadd(bcadd((string) $order->purchase_cost, (string) $order->transport_cost, 2), (string) $order->other_cost, 2) : (string) $offer->total_cost]);
