@@ -1,10 +1,12 @@
 <?php
 namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
-use App\Models\{InvestmentOffer, Order};
+use App\Models\{CustomerOrder, CustomerOrderItem, InvestmentOffer, Order, Product};
 use App\Services\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class OrderController extends Controller {
     const FLOW = ['draft', 'confirmed', 'awaiting_financing', 'financing_secured', 'procurement', 'ready', 'delivered', 'financial_verification', 'settlement_pending', 'settled', 'cancelled', 'disputed'];
@@ -30,5 +32,144 @@ class OrderController extends Controller {
         $order->forceFill(['status' => $to, 'delivered_at' => $to === 'delivered' ? now() : $order->delivered_at])->save();
         Audit::log('order.status', $order, ['to' => $to]);
         return back()->with('ok', 'Updated.');
+    }
+
+    public function customerOrders()
+    {
+        $rows = CustomerOrder::with('items')->latest()->paginate(20);
+        $products = Product::where('is_active', true)->orderBy('name')->get();
+        $monthProfit = CustomerOrder::where('status', '!=', 'cancelled')
+            ->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('profit');
+
+        return view('admin.customer-orders', [
+            'rows' => $rows, 'products' => $products, 'monthProfit' => $monthProfit,
+            'statuses' => ['received', 'confirmed', 'processing', 'ready', 'delivered', 'cancelled'],
+        ]);
+    }
+
+    public function productStore(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:200',
+            'sku' => 'nullable|string|max:50|unique:products,sku',
+            'unit_cost' => 'required|numeric|min:0|max:10000000',
+            'unit_price' => 'required|numeric|min:0|max:10000000',
+        ]);
+        $data['unit_cost'] = bcadd((string) $data['unit_cost'], '0', 2);
+        $data['unit_price'] = bcadd((string) $data['unit_price'], '0', 2);
+        $product = Product::create($data);
+        Audit::log('customer_product.created', $product, ['sku' => $product->sku]);
+
+        return back()->with('ok', 'Product added.');
+    }
+
+    public function customerOrderStore(Request $request)
+    {
+        $data = $request->validate([
+            'customer_name' => 'required|string|max:150',
+            'customer_phone' => 'required|string|max:30',
+            'whatsapp_number' => 'nullable|string|max:30',
+            'delivery_address' => 'nullable|string|max:2000',
+            'delivery_charge' => 'nullable|numeric|min:0|max:10000000',
+            'delivery_cost' => 'nullable|numeric|min:0|max:10000000',
+            'other_cost' => 'nullable|numeric|min:0|max:10000000',
+            'paid_amount' => 'nullable|numeric|min:0|max:10000000',
+            'notes' => 'nullable|string|max:2000',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1|max:100000',
+            'items.*.unit_price' => 'nullable|numeric|min:0|max:10000000',
+        ]);
+
+        $products = Product::whereIn('id', collect($data['items'])->pluck('product_id')->unique())
+            ->where('is_active', true)->get()->keyBy('id');
+        if ($products->count() !== collect($data['items'])->pluck('product_id')->unique()->count()) {
+            return back()->withErrors(['items' => 'One or more selected products are inactive.'])->withInput();
+        }
+
+        $deliveryCharge = bcadd((string) ($data['delivery_charge'] ?? '0'), '0', 2);
+        $deliveryCost = bcadd((string) ($data['delivery_cost'] ?? '0'), '0', 2);
+        $otherCost = bcadd((string) ($data['other_cost'] ?? '0'), '0', 2);
+        $paidAmount = bcadd((string) ($data['paid_amount'] ?? '0'), '0', 2);
+        $subtotal = '0.00';
+        $productCostTotal = '0.00';
+        $lines = [];
+
+        foreach ($data['items'] as $item) {
+            $product = $products->get((int) $item['product_id']);
+            $qty = (int) $item['quantity'];
+            $unitPrice = bcadd((string) ($item['unit_price'] ?? $product->unit_price), '0', 2);
+            $unitCost = bcadd((string) $product->unit_cost, '0', 2);
+            $lineTotal = bcmul((string) $qty, $unitPrice, 2);
+            $lineCost = bcmul((string) $qty, $unitCost, 2);
+            $subtotal = bcadd($subtotal, $lineTotal, 2);
+            $productCostTotal = bcadd($productCostTotal, $lineCost, 2);
+            $lines[] = compact('product', 'qty', 'unitPrice', 'unitCost', 'lineTotal', 'lineCost');
+        }
+
+        $totalAmount = bcadd($subtotal, $deliveryCharge, 2);
+        if (bccomp($paidAmount, $totalAmount, 2) > 0) {
+            return back()->withErrors(['paid_amount' => 'Paid amount cannot be greater than the order total.'])->withInput();
+        }
+        $totalCost = bcadd(bcadd($productCostTotal, $deliveryCost, 2), $otherCost, 2);
+        $profit = bcsub($totalAmount, $totalCost, 2);
+
+        $order = DB::transaction(function () use ($data, $request, $deliveryCharge, $deliveryCost, $otherCost, $paidAmount, $subtotal, $totalAmount, $totalCost, $profit, $lines) {
+            $order = CustomerOrder::create([
+                'code' => 'SO-'.now()->format('ymd').'-'.Str::upper(Str::random(5)),
+                'customer_name' => $data['customer_name'], 'customer_phone' => $data['customer_phone'],
+                'whatsapp_number' => $data['whatsapp_number'] ?? null, 'delivery_address' => $data['delivery_address'] ?? null,
+                'status' => 'received', 'subtotal' => $subtotal, 'delivery_charge' => $deliveryCharge,
+                'delivery_cost' => $deliveryCost, 'other_cost' => $otherCost, 'total_amount' => $totalAmount,
+                'total_cost' => $totalCost, 'profit' => $profit, 'paid_amount' => $paidAmount,
+                'notes' => $data['notes'] ?? null, 'created_by' => $request->user()->id,
+            ]);
+            foreach ($lines as $line) {
+                CustomerOrderItem::create([
+                    'customer_order_id' => $order->id, 'product_id' => $line['product']->id,
+                    'product_name' => $line['product']->name, 'quantity' => $line['qty'],
+                    'unit_cost' => $line['unitCost'], 'unit_price' => $line['unitPrice'],
+                    'line_cost' => $line['lineCost'], 'line_total' => $line['lineTotal'],
+                ]);
+            }
+            return $order;
+        });
+
+        Audit::log('customer_order.created', $order, ['total' => $totalAmount, 'profit' => $profit]);
+        return redirect()->route('admin.customer-orders')->with('ok', "Order {$order->code} saved.");
+    }
+
+    public function customerOrderStatus(Request $request, CustomerOrder $customerOrder)
+    {
+        $status = $request->validate(['status' => ['required', Rule::in(['received', 'confirmed', 'processing', 'ready', 'delivered', 'cancelled'])]])['status'];
+        $customerOrder->forceFill(['status' => $status])->save();
+        Audit::log('customer_order.status', $customerOrder, ['status' => $status]);
+        return back()->with('ok', 'Customer order status updated.');
+    }
+
+    public function customerOrderMemo(CustomerOrder $customerOrder)
+    {
+        $customerOrder->load('items');
+        return view('admin.customer-order-memo', [
+            'order' => $customerOrder,
+            'memo' => [
+                'company' => config('app.name', 'Inaya Supplies'),
+                'code' => $customerOrder->code,
+                'date' => $customerOrder->created_at->timezone('Asia/Dhaka')->format('d M Y, h:i A'),
+                'customer' => $customerOrder->customer_name,
+                'phone' => $customerOrder->customer_phone,
+                'whatsapp' => $customerOrder->whatsapp_number,
+                'address' => $customerOrder->delivery_address,
+                'items' => $customerOrder->items->map(fn ($item) => [
+                    'name' => $item->product_name, 'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price, 'total' => $item->line_total,
+                ])->values(),
+                'subtotal' => $customerOrder->subtotal,
+                'delivery_charge' => $customerOrder->delivery_charge,
+                'total' => $customerOrder->total_amount,
+                'paid' => $customerOrder->paid_amount,
+                'due' => $customerOrder->dueAmount(),
+            ],
+        ]);
     }
 }

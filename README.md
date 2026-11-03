@@ -28,6 +28,9 @@ Cron (cPanel, every minute): `* * * * * cd /home/USER/app && php artisan schedul
 Roles: super_admin (everything) | finance_manager (investors, deposits, withdrawals, settlements, reports)
 | order_manager (orders only, no money) | investor.
 
+## WhatsApp customer orders
+Super Admin and Order Manager can use **Customer Orders** to maintain a product catalog, enter orders received through WhatsApp, and track order status. Each order snapshots product cost and sale price, calculates product and delivery costs, customer delivery charge, paid/due amounts, and order profit. The order memo page downloads a customer-facing JPG that excludes internal costs and profit.
+
 ## Not built yet / decisions needed
 Live bKash API (needs merchant credentials; manual TrxID approval is used), PDF agreements, email/SMS, Bangla UI toggle,
 support tickets, 2FA, document uploads for offers, DB-level append-only triggers on ledger tables.

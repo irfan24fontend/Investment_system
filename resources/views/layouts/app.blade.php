@@ -19,7 +19,7 @@
     $links = [['admin.dashboard','Admin']];
     if ($u->hasRole('super_admin')) { $links[] = ['admin.offers','Offers']; $links[] = ['admin.audit','Audit']; }
     if ($u->hasRole('super_admin','finance_manager')) { array_push($links, ['admin.investors','Investors'],['admin.deposits','Deposits'],['admin.withdrawals','Withdrawals'],['admin.settlements','Settlements'],['admin.reports','Reports']); }
-    if ($u->hasRole('super_admin','order_manager')) $links[] = ['admin.orders','Orders'];
+    if ($u->hasRole('super_admin','order_manager')) { $links[] = ['admin.orders','Orders']; $links[] = ['admin.customer-orders','Customer Orders']; }
   } else $links = [];
   if ($u) $links[] = ['help','Guide'];
   $bars = 'M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5';

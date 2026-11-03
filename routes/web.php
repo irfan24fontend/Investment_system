@@ -52,6 +52,11 @@ Route::middleware('auth')->group(function () {
             Route::get('/orders', [OrderController::class, 'index'])->name('orders');
             Route::post('/orders', [OrderController::class, 'store'])->name('orders.store');
             Route::post('/orders/{order}/status', [OrderController::class, 'status'])->name('orders.status');
+            Route::get('/customer-orders', [OrderController::class, 'customerOrders'])->name('customer-orders');
+            Route::post('/customer-orders/products', [OrderController::class, 'productStore'])->name('customer-orders.products.store');
+            Route::post('/customer-orders', [OrderController::class, 'customerOrderStore'])->name('customer-orders.store');
+            Route::post('/customer-orders/{customerOrder}/status', [OrderController::class, 'customerOrderStatus'])->name('customer-orders.status');
+            Route::get('/customer-orders/{customerOrder}/memo', [OrderController::class, 'customerOrderMemo'])->name('customer-orders.memo');
         });
         Route::middleware('role:super_admin')->group(function () { // super admin only
             Route::get('/offers', [AdminController::class, 'offers'])->name('offers');
