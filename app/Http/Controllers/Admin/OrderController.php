@@ -43,6 +43,12 @@ class OrderController extends Controller {
 
         return view('admin.customer-orders', [
             'rows' => $rows, 'products' => $products, 'monthProfit' => $monthProfit,
+            'productOptions' => $products->map(fn ($product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'cost' => $product->unit_cost,
+                'price' => $product->unit_price,
+            ])->values(),
             'statuses' => ['received', 'confirmed', 'processing', 'ready', 'delivered', 'cancelled'],
         ]);
     }

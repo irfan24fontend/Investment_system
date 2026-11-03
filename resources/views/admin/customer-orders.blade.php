@@ -88,7 +88,7 @@
   const add = document.getElementById('add-order-item');
   if (!wrap || !add) return;
   let nextIndex = 1;
-  const options = @json($products->map(fn($p) => ['id' => $p->id, 'name' => $p->name, 'cost' => $p->unit_cost, 'price' => $p->unit_price])->values());
+  const options = @json($productOptions);
   function makeRow(index) {
     const row = document.createElement('div'); row.className = 'order-item grid grid-cols-12 gap-2 items-end';
     const select = document.createElement('select'); select.name = 'items[' + index + '][product_id]'; select.required = true; select.className = 'product-select mt-1 w-full border rounded-lg p-2 text-sm'; select.innerHTML = '<option value="">Select product</option>';
