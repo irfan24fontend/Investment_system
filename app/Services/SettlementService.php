@@ -145,20 +145,11 @@ class SettlementService {
             $original = DB::table('ledger_transactions')->where('id', $s->ledger_transaction_id)->first();
             if (! $original) throw new BusinessRuleException('Original settlement ledger transaction was not found.');
             $entries = DB::table('ledger_entries')->where('transaction_id', $original->id)->get();
-            $walletId = $this->ledger->account($inv->user_id, 'wallet')->id;
-            $walletCredit = '0.00';
             $lines = [];
             foreach ($entries as $entry) {
-                if ((int) $entry->account_id === $walletId && $entry->direction === 'credit') {
-                    $walletCredit = bcadd($walletCredit, (string) $entry->amount, 2);
-                }
                 $account = \App\Models\LedgerAccount::findOrFail($entry->account_id);
                 $lines[] = [$account, $entry->direction === 'debit' ? 'credit' : 'debit', (string) $entry->amount];
             }
-            if (bccomp($this->ledger->account($inv->user_id, 'wallet')->balance(true), $walletCredit, 2) < 0) {
-                throw new BusinessRuleException('Investor has already used part of the credited amount; the credit cannot be fully reversed.');
-            }
-
             $tx = $this->ledger->post('settlement_reversal', "settlement-reversal:{$s->id}", $lines, [
                 'related_type' => Settlement::class, 'related_id' => $s->id,
                 'initiated_by' => $by->id, 'approved_by' => $by->id, 'description' => 'Settlement reversal',
