@@ -159,7 +159,8 @@ class OrderController extends Controller {
         return view('admin.customer-order-memo', [
             'order' => $customerOrder,
             'memo' => [
-                'company' => config('app.name', 'Inaya Supplies'),
+                'company' => 'Inayasupplies',
+                'company_phone' => '01603600812',
                 'code' => $customerOrder->code,
                 'date' => $customerOrder->created_at->timezone('Asia/Dhaka')->format('d M Y, h:i A'),
                 'customer' => $customerOrder->customer_name,

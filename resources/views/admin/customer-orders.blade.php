@@ -2,7 +2,7 @@
 @section('content')
 <div class="flex flex-wrap justify-between items-end gap-3 mb-5">
   <div><h1 class="text-2xl font-bold">Customer orders</h1><p class="text-sm text-slate-500">Record orders received through WhatsApp or other channels.</p></div>
-  <div class="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm"><span class="text-slate-500">This month’s profit</span><div class="text-xl font-bold text-indigo-700">৳{{ number_format($monthProfit,2) }}</div></div>
+  <div class="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm"><span class="text-slate-500">This month’s expected profit</span><div class="text-xl font-bold text-indigo-700">৳{{ number_format($monthProfit,2) }}</div></div>
 </div>
 
 <div class="grid lg:grid-cols-3 gap-5 mb-7">
@@ -61,7 +61,7 @@
 <div class="bg-white border rounded-xl p-4">
   <h2 class="font-semibold mb-3">Order register</h2>
   <div class="overflow-x-auto"><table class="w-full text-sm min-w-[850px]">
-    <thead><tr class="text-left text-slate-500 border-b"><th class="py-2">Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Cost</th><th>Profit</th><th>Due</th><th>Status</th><th></th></tr></thead>
+    <thead><tr class="text-left text-slate-500 border-b"><th class="py-2">Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Cost</th><th>Expected profit</th><th>Due</th><th>Status</th><th></th></tr></thead>
     <tbody>
     @forelse($rows as $o)
       <tr class="border-b last:border-0 align-top">
