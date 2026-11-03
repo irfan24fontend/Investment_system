@@ -174,17 +174,16 @@ class SettlementService {
     {
         if ($settlement->status !== 'posted' || ! $settlement->ledger_transaction_id) return '0.00';
         $walletId = $this->ledger->account($settlement->investment->user_id, 'wallet')->id;
-        $actual = DB::table('ledger_entries')->where('transaction_id', $settlement->ledger_transaction_id)
-            ->where('account_id', $walletId)
-            ->selectRaw("COALESCE(SUM(CASE WHEN direction='credit' THEN amount ELSE -amount END),0) amount")
-            ->value('amount');
-        $adjustments = DB::table('ledger_entries as e')
+        // Compare the current payout with the net wallet movement across every
+        // complete/undo cycle for this settlement. A prior orphan reversal must count.
+        $actual = DB::table('ledger_entries as e')
             ->join('ledger_transactions as t', 't.id', '=', 'e.transaction_id')
-            ->where('t.idempotency_key', 'like', "settlement-adjustment:{$settlement->ledger_transaction_id}:%")
+            ->where('t.related_type', Settlement::class)
+            ->where('t.related_id', $settlement->id)
+            ->whereIn('t.type', ['settlement', 'settlement_reversal', 'settlement_adjustment'])
             ->where('e.account_id', $walletId)
             ->selectRaw("COALESCE(SUM(CASE WHEN e.direction='credit' THEN e.amount ELSE -e.amount END),0) amount")
             ->value('amount');
-        $actual = bcadd((string) ($actual ?? '0.00'), (string) ($adjustments ?? '0.00'), 2);
         return bcsub((string) $settlement->payout, (string) ($actual ?? '0.00'), 2);
     }
 
