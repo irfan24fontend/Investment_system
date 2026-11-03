@@ -161,7 +161,7 @@ class SettlementService {
 
             $tx = $this->ledger->post('settlement_reversal', "settlement-reversal:{$s->id}", $lines, [
                 'related_type' => Settlement::class, 'related_id' => $s->id,
-                'initiated_by' => $by->id, 'approved_by' => $by->id, 'description' => 'Undo settlement: '.$reason,
+                'initiated_by' => $by->id, 'approved_by' => $by->id, 'description' => 'Settlement reversal',
             ]);
             $s->forceFill(['status' => 'reversed', 'reversal_transaction_id' => $tx,
                 'reversal_reason' => $reason, 'reversed_at' => now()])->save();
