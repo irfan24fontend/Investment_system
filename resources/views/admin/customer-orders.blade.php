@@ -13,6 +13,8 @@
     <div class="grid grid-cols-2 gap-2">
       <label class="block text-xs text-slate-500">Unit cost<input name="unit_cost" type="number" min="0" step="0.01" required class="mt-1 w-full border rounded-lg p-2 text-sm"></label>
       <label class="block text-xs text-slate-500">Unit sale price<input name="unit_price" type="number" min="0" step="0.01" required class="mt-1 w-full border rounded-lg p-2 text-sm"></label>
+      <label class="block text-xs text-slate-500">Opening stock<input name="opening_stock" type="number" min="0" step="1" value="0" class="mt-1 w-full border rounded-lg p-2 text-sm"></label>
+      <label class="block text-xs text-slate-500">Low stock alert at<input name="low_stock_threshold" type="number" min="0" step="1" value="0" class="mt-1 w-full border rounded-lg p-2 text-sm"></label>
     </div>
     <button class="bg-slate-800 text-white rounded-lg px-4 py-2 text-sm">Save product</button>
     <p class="text-xs text-slate-500">Products already used in orders remain in order history if their catalog details change.</p>
@@ -31,7 +33,7 @@
       @if($products->isEmpty())<p class="text-sm text-amber-700 bg-amber-50 border rounded-lg p-3">Add a product first, then enter the order.</p>@endif
       <div id="order-items" class="space-y-2">
         <div class="order-item grid grid-cols-12 gap-2 items-end">
-          <label class="col-span-6 sm:col-span-5 text-xs text-slate-500">Product<select name="items[0][product_id]" required class="product-select mt-1 w-full border rounded-lg p-2 text-sm"><option value="">Select product</option>@foreach($products as $p)<option value="{{ $p->id }}" data-cost="{{ $p->unit_cost }}" data-price="{{ $p->unit_price }}">{{ $p->name }} · ৳{{ number_format($p->unit_price,2) }}</option>@endforeach</select></label>
+          <label class="col-span-6 sm:col-span-5 text-xs text-slate-500">Product<select name="items[0][product_id]" required class="product-select mt-1 w-full border rounded-lg p-2 text-sm"><option value="">Select product</option>@foreach($products as $p)<option value="{{ $p->id }}" data-cost="{{ $p->unit_cost }}" data-price="{{ $p->unit_price }}">{{ $p->name }} · ৳{{ number_format($p->unit_price,2) }} · stock {{ $p->stock_quantity }}</option>@endforeach</select></label>
           <label class="col-span-2 text-xs text-slate-500">Qty<input name="items[0][quantity]" type="number" min="1" value="1" required class="qty mt-1 w-full border rounded-lg p-2 text-sm"></label>
           <label class="col-span-3 sm:col-span-4 text-xs text-slate-500">Unit sale price<input name="items[0][unit_price]" type="number" min="0" step="0.01" required class="price mt-1 w-full border rounded-lg p-2 text-sm"></label>
           <button type="button" class="remove-item col-span-1 text-red-600 p-2" aria-label="Remove item">×</button>
@@ -53,8 +55,8 @@
 <div class="bg-white border rounded-xl p-4 mb-7">
   <h2 class="font-semibold mb-3">Product catalog</h2>
   <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead><tr class="text-left text-slate-500 border-b"><th class="py-2">Product</th><th>SKU</th><th>Unit cost</th><th>Sale price</th><th>Unit profit</th></tr></thead>
-    <tbody>@forelse($products as $p)<tr class="border-b last:border-0"><td class="py-2">{{ $p->name }}</td><td>{{ $p->sku ?: '—' }}</td><td>৳{{ number_format($p->unit_cost,2) }}</td><td>৳{{ number_format($p->unit_price,2) }}</td><td class="text-green-700">৳{{ number_format((float) $p->unit_price - (float) $p->unit_cost,2) }}</td></tr>@empty<tr><td colspan="5" class="py-4 text-slate-500">No products added yet.</td></tr>@endforelse</tbody>
+    <thead><tr class="text-left text-slate-500 border-b"><th class="py-2">Product</th><th>SKU</th><th>Stock</th><th>Unit cost</th><th>Sale price</th><th>Unit profit</th></tr></thead>
+    <tbody>@forelse($products as $p)<tr class="border-b last:border-0"><td class="py-2">{{ $p->name }}</td><td>{{ $p->sku ?: '—' }}</td><td class="{{ $p->stock_quantity <= $p->low_stock_threshold ? 'text-amber-700 font-semibold' : '' }}">{{ $p->stock_quantity }} {{ $p->stock_quantity <= $p->low_stock_threshold ? '· Low' : '' }}</td><td>৳{{ number_format($p->unit_cost,2) }}</td><td>৳{{ number_format($p->unit_price,2) }}</td><td class="text-green-700">৳{{ number_format((float) $p->unit_price - (float) $p->unit_cost,2) }}</td></tr>@empty<tr><td colspan="6" class="py-4 text-slate-500">No products added yet.</td></tr>@endforelse</tbody>
   </table></div>
 </div>
 
@@ -92,7 +94,7 @@
   function makeRow(index) {
     const row = document.createElement('div'); row.className = 'order-item grid grid-cols-12 gap-2 items-end';
     const select = document.createElement('select'); select.name = 'items[' + index + '][product_id]'; select.required = true; select.className = 'product-select mt-1 w-full border rounded-lg p-2 text-sm'; select.innerHTML = '<option value="">Select product</option>';
-    options.forEach(p => { const opt = document.createElement('option'); opt.value = p.id; opt.dataset.price = p.price; opt.dataset.cost = p.cost; opt.textContent = p.name + ' · ৳' + Number(p.price).toFixed(2); select.appendChild(opt); });
+    options.forEach(p => { const opt = document.createElement('option'); opt.value = p.id; opt.dataset.price = p.price; opt.dataset.cost = p.cost; opt.textContent = p.name + ' · ৳' + Number(p.price).toFixed(2) + ' · stock ' + p.stock; select.appendChild(opt); });
     const productLabel = document.createElement('label'); productLabel.className = 'col-span-6 sm:col-span-5 text-xs text-slate-500'; productLabel.textContent = 'Product'; productLabel.appendChild(select);
     const qtyLabel = document.createElement('label'); qtyLabel.className = 'col-span-2 text-xs text-slate-500'; qtyLabel.textContent = 'Qty';
     const qty = document.createElement('input'); qty.type = 'number'; qty.min = '1'; qty.value = '1'; qty.required = true; qty.name = 'items[' + index + '][quantity]'; qty.className = 'qty mt-1 w-full border rounded-lg p-2 text-sm'; qtyLabel.appendChild(qty);

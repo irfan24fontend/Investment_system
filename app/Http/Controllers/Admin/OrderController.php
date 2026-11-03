@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\{CustomerOrder, CustomerOrderItem, InvestmentOffer, Order, Product};
+use App\Models\InventoryMovement;
 use App\Services\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -48,6 +49,7 @@ class OrderController extends Controller {
                 'name' => $product->name,
                 'cost' => $product->unit_cost,
                 'price' => $product->unit_price,
+                'stock' => $product->stock_quantity,
             ])->values(),
             'statuses' => ['received', 'confirmed', 'processing', 'ready', 'delivered', 'cancelled'],
         ]);
@@ -60,10 +62,28 @@ class OrderController extends Controller {
             'sku' => 'nullable|string|max:50|unique:products,sku',
             'unit_cost' => 'required|numeric|min:0|max:10000000',
             'unit_price' => 'required|numeric|min:0|max:10000000',
+            'opening_stock' => 'nullable|integer|min:0|max:10000000',
+            'low_stock_threshold' => 'nullable|integer|min:0|max:10000000',
         ]);
         $data['unit_cost'] = bcadd((string) $data['unit_cost'], '0', 2);
         $data['unit_price'] = bcadd((string) $data['unit_price'], '0', 2);
-        $product = Product::create($data);
+        $openingStock = (int) ($data['opening_stock'] ?? 0);
+        $product = DB::transaction(function () use ($data, $openingStock, $request) {
+            $product = Product::create([
+                'name' => $data['name'], 'sku' => $data['sku'] ?? null,
+                'unit_cost' => $data['unit_cost'], 'unit_price' => $data['unit_price'],
+                'stock_quantity' => $openingStock,
+                'low_stock_threshold' => (int) ($data['low_stock_threshold'] ?? 0),
+            ]);
+            if ($openingStock > 0) {
+                InventoryMovement::create([
+                    'product_id' => $product->id, 'type' => 'opening_stock',
+                    'quantity_change' => $openingStock, 'balance_after' => $openingStock,
+                    'notes' => 'Opening stock when product was created.', 'created_by' => $request->user()->id,
+                ]);
+            }
+            return $product;
+        });
         Audit::log('customer_product.created', $product, ['sku' => $product->sku]);
 
         return back()->with('ok', 'Product added.');
@@ -121,6 +141,22 @@ class OrderController extends Controller {
         $profit = bcsub($totalAmount, $totalCost, 2);
 
         $order = DB::transaction(function () use ($data, $request, $deliveryCharge, $deliveryCost, $otherCost, $paidAmount, $subtotal, $totalAmount, $totalCost, $profit, $lines) {
+            $lockedProducts = Product::whereIn('id', collect($lines)->pluck('product.id')->unique())
+                ->lockForUpdate()->get()->keyBy('id');
+            $requestedQuantities = [];
+            foreach ($lines as $line) {
+                $productId = $line['product']->id;
+                $requestedQuantities[$productId] = ($requestedQuantities[$productId] ?? 0) + $line['qty'];
+            }
+            foreach ($requestedQuantities as $productId => $quantity) {
+                $product = $lockedProducts->get($productId);
+                if (! $product || ! $product->is_active) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['items' => 'A selected product is no longer available.']);
+                }
+                if ($product->stock_quantity < $quantity) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['items' => "Not enough stock for {$product->name}; available: {$product->stock_quantity}."]);
+                }
+            }
             $order = CustomerOrder::create([
                 'code' => 'SO-'.now()->format('ymd').'-'.Str::upper(Str::random(5)),
                 'customer_name' => $data['customer_name'], 'customer_phone' => $data['customer_phone'],
@@ -131,11 +167,20 @@ class OrderController extends Controller {
                 'notes' => $data['notes'] ?? null, 'created_by' => $request->user()->id,
             ]);
             foreach ($lines as $line) {
+                $product = $lockedProducts->get($line['product']->id);
+                $product->stock_quantity -= $line['qty'];
+                $product->save();
                 CustomerOrderItem::create([
-                    'customer_order_id' => $order->id, 'product_id' => $line['product']->id,
-                    'product_name' => $line['product']->name, 'quantity' => $line['qty'],
+                    'customer_order_id' => $order->id, 'product_id' => $product->id,
+                    'product_name' => $product->name, 'quantity' => $line['qty'],
                     'unit_cost' => $line['unitCost'], 'unit_price' => $line['unitPrice'],
                     'line_cost' => $line['lineCost'], 'line_total' => $line['lineTotal'],
+                ]);
+                InventoryMovement::create([
+                    'product_id' => $product->id, 'type' => 'sale',
+                    'quantity_change' => -$line['qty'], 'balance_after' => $product->stock_quantity,
+                    'reference_type' => 'customer_order', 'reference_id' => $order->id,
+                    'notes' => 'Stock issued for '.$order->code, 'created_by' => $request->user()->id,
                 ]);
             }
             return $order;
@@ -148,7 +193,42 @@ class OrderController extends Controller {
     public function customerOrderStatus(Request $request, CustomerOrder $customerOrder)
     {
         $status = $request->validate(['status' => ['required', Rule::in(['received', 'confirmed', 'processing', 'ready', 'delivered', 'cancelled'])]])['status'];
-        $customerOrder->forceFill(['status' => $status])->save();
+        DB::transaction(function () use ($customerOrder, $status, $request) {
+            $order = CustomerOrder::with('items')->lockForUpdate()->findOrFail($customerOrder->id);
+            if ($order->status === $status) return;
+            if ($status === 'cancelled' && $order->status !== 'cancelled') {
+                foreach ($order->items as $item) {
+                    if (! $item->product_id) continue;
+                    $product = Product::whereKey($item->product_id)->lockForUpdate()->first();
+                    if (! $product) continue;
+                    $product->stock_quantity += $item->quantity;
+                    $product->save();
+                    InventoryMovement::create([
+                        'product_id' => $product->id, 'type' => 'sale_cancelled',
+                        'quantity_change' => $item->quantity, 'balance_after' => $product->stock_quantity,
+                        'reference_type' => 'customer_order', 'reference_id' => $order->id,
+                        'notes' => 'Stock returned for '.$order->code, 'created_by' => $request->user()->id,
+                    ]);
+                }
+            } elseif ($order->status === 'cancelled' && $status !== 'cancelled') {
+                foreach ($order->items as $item) {
+                    if (! $item->product_id) continue;
+                    $product = Product::whereKey($item->product_id)->lockForUpdate()->first();
+                    if (! $product || $product->stock_quantity < $item->quantity) {
+                        throw \Illuminate\Validation\ValidationException::withMessages(['status' => "Cannot reopen order; insufficient stock for {$item->product_name}."]);
+                    }
+                    $product->stock_quantity -= $item->quantity;
+                    $product->save();
+                    InventoryMovement::create([
+                        'product_id' => $product->id, 'type' => 'sale_reopened',
+                        'quantity_change' => -$item->quantity, 'balance_after' => $product->stock_quantity,
+                        'reference_type' => 'customer_order', 'reference_id' => $order->id,
+                        'notes' => 'Stock reissued for '.$order->code, 'created_by' => $request->user()->id,
+                    ]);
+                }
+            }
+            $order->forceFill(['status' => $status])->save();
+        });
         Audit::log('customer_order.status', $customerOrder, ['status' => $status]);
         return back()->with('ok', 'Customer order status updated.');
     }

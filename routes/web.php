@@ -1,5 +1,5 @@
 <?php
-use App\Http\Controllers\Admin\{AdminController, OrderController};
+use App\Http\Controllers\Admin\{AdminController, BusinessController, OrderController};
 use App\Http\Controllers\{AuthController, InvestorController};
 use Illuminate\Support\Facades\Route;
 
@@ -57,6 +57,10 @@ Route::middleware('auth')->group(function () {
             Route::post('/customer-orders', [OrderController::class, 'customerOrderStore'])->name('customer-orders.store');
             Route::post('/customer-orders/{customerOrder}/status', [OrderController::class, 'customerOrderStatus'])->name('customer-orders.status');
             Route::get('/customer-orders/{customerOrder}/memo', [OrderController::class, 'customerOrderMemo'])->name('customer-orders.memo');
+            Route::get('/business', [BusinessController::class, 'index'])->name('business');
+            Route::post('/business/suppliers', [BusinessController::class, 'supplierStore'])->name('business.suppliers.store');
+            Route::post('/business/purchases', [BusinessController::class, 'purchaseStore'])->name('business.purchases.store');
+            Route::post('/business/products/{product}/stock-adjust', [BusinessController::class, 'stockAdjust'])->name('business.stock-adjust');
         });
         Route::middleware('role:super_admin')->group(function () { // super admin only
             Route::get('/offers', [AdminController::class, 'offers'])->name('offers');

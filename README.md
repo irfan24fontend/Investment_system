@@ -31,6 +31,9 @@ Roles: super_admin (everything) | finance_manager (investors, deposits, withdraw
 ## WhatsApp customer orders
 Super Admin and Order Manager can use **Customer Orders** to maintain a product catalog, enter orders received through WhatsApp, and track order status. Each order snapshots product cost and sale price, calculates product and delivery costs, customer delivery charge, paid/due amounts, and order profit. The order memo page downloads a customer-facing JPG that excludes internal costs and profit.
 
+## Business inventory and purchases
+Super Admin and Order Manager can use **Inventory & Purchases** to maintain suppliers, record received purchases, track supplier dues, view stock movement history, and adjust stock with a reason. Purchases increase on-hand stock and update product cost using weighted average cost. Customer orders reserve/deduct available stock; cancelling returns stock once, and reopening a cancelled order checks availability before deducting it again. Set opening stock or make a reasoned adjustment for products that existed before inventory tracking was enabled. Apply migrations with `php artisan migrate --force` after deployment.
+
 ## Not built yet / decisions needed
 Live bKash API (needs merchant credentials; manual TrxID approval is used), PDF agreements, email/SMS, Bangla UI toggle,
 support tickets, 2FA, document uploads for offers, DB-level append-only triggers on ledger tables.
